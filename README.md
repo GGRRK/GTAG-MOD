@@ -2,17 +2,18 @@
 
 Recording-camera mod for Gorilla Tag (PC / Steam). Adds a floating in-game menu that you touch with your gorilla hand to change FOV.
 
-## Features (v0.5)
+## Features (v0.6)
 - Tablet-style menu with wood-brown frame and cream cards
-- **FOV card** — current FOV displayed big in the middle; red `−` and green `+` buttons to adjust
+- **FOV card** — current FOV displayed big; red `−` and green `+` buttons to adjust
 - **DISCONNECT LOBBY card** — large orange tap zone, leaves the current Photon room
 - **A button (right controller) toggles the menu open/closed**
-- **Pink handles on each side** — touch with your hand + hold **grip** to drag the menu wherever you want; release grip to drop
+- **Pink handles on each side** — touch with your hand + hold **grip** to drag the menu; release grip to drop
 - Menu stays where you put it (no head-follow)
-- Keyboard fallbacks: `F7` (FOV−), `F8` (FOV+), `F9` (disconnect), `F10` (toggle menu)
+- **Interaction uses position polling** against Gorilla Tag's actual hand transforms (reflected from `GorillaLocomotion.Player.Instance`), not Unity physics triggers — much more reliable inside GT
+- Keyboard fallbacks: `F7` (FOV−), `F8` (FOV+), `F9` (disconnect), `F10` (toggle), `F11` (diagnostic dump → BepInEx console)
 - FOV clamped to 30°–170°
 
-### Not yet matching the reference
+### Not yet matching the reference image
 - Rounded corners (needs custom shader / bundled texture)
 - Wood texture on the frame (needs bundled PNG)
 - First/Third person toggle, FLIP, RECORD buttons — each is its own feature, ask if you want any built next

@@ -1,15 +1,20 @@
 using UnityEngine;
 using UnityEngine.XR;
+using System.Collections.Generic;
 
 namespace GTagCameraMod
 {
-    // Floating world-space menu built from primitives + TextMesh. No UnityEngine.UI.
+    // Tablet-style menu built from primitives + TextMesh.
     //
-    // Interactions:
-    //   - A button on right controller toggles visibility (F10 keyboard fallback)
-    //   - Touch a side handle + hold grip on the same hand → menu follows that hand
-    //   - Release grip → menu stays at new position
-    //   - Touch the FOV +/- buttons or the DISCONNECT card to activate them
+    // Interaction is polling-based (NOT physics triggers):
+    //   - HandTracker locates GT's left/right hand transforms via reflection.
+    //   - Each frame we test whether either hand is inside each button's local AABB.
+    //   - Edge-detection (was outside last frame, now inside) fires the button.
+    //   - Handles use the same AABB test + a grip-button hold to drag.
+    //
+    // Why polling: GT puts player hands on a non-default physics setup and the
+    // Unity OnTriggerEnter callback does not reliably fire against them. Distance
+    // / bounds tests against the actual hand Transform are how mature GT mods do it.
     public class FovMenu : MonoBehaviour
     {
         // === FOV ===
@@ -17,15 +22,22 @@ namespace GTagCameraMod
         private const float FovMin = 30f;
         private const float FovMax = 170f;
 
-        // === Sizes in world meters — tablet aspect ratio ===
+        // === Panel dimensions (world meters; tablet aspect) ===
         private const float PanelWidth = 0.42f;
         private const float PanelHeight = 0.22f;
-        private const float HandleSize = 0.045f;
+        private const float HandleSize = 0.05f;
+
+        // === Interaction ===
+        // How far perpendicular to a button (in meters) still counts as "touching."
+        private const float TouchDepthM = 0.04f;
+        // Cooldown per-button so a held hand doesn't spam presses (only one press per entry now,
+        // but this also throttles in case of jitter).
+        private const float TouchCooldown = 0.20f;
 
         // === First-time placement (offset from head when menu first becomes visible) ===
         private static readonly Vector3 InitialOffsetFromHead = new(0f, -0.15f, 0.55f);
 
-        // === Palette (wood + cream aesthetic) ===
+        // === Palette ===
         private static readonly Color WoodFrame   = new(0.36f, 0.22f, 0.10f, 1f);
         private static readonly Color CreamCard   = new(0.94f, 0.90f, 0.78f, 1f);
         private static readonly Color DarkBrown   = new(0.18f, 0.10f, 0.04f, 1f);
@@ -34,21 +46,32 @@ namespace GTagCameraMod
         private static readonly Color OrangeCard  = new(0.88f, 0.55f, 0.10f, 1f);
         private static readonly Color HandlePink  = new(1.00f, 0.40f, 0.85f, 1f);
 
-        // === Interaction ===
-        private const float TouchCooldown = 0.25f;
+        // === Touch system ===
+        private class TouchTarget
+        {
+            public Transform Transform = null!;
+            public System.Action OnPressed = null!;
+            // Local-space half-extents for the XY face of the button (in unscaled quad units)
+            public Vector2 LocalHalfXY;
+            public string Name = "";
+            public bool LeftWasInside;
+            public bool RightWasInside;
+            public float LastFireTime;
+        }
 
+        private readonly List<TouchTarget> _buttons = new();
+        private readonly List<Transform> _handles = new();
+
+        // === State ===
         private Camera? _head;
         private TextMesh? _fovText;
-        private float _lastTouchTime;
-
         private GameObject? _visualsRoot;
         private bool _visible = true;
         private bool _hasBeenPositioned;
-
         private bool _aWasDown;
 
-        private Transform? _grabbingHand;
-        private XRNode _grabbingNode = XRNode.RightHand;
+        private bool _isGrabbing;
+        private XRNode _grabbingNode;
         private Vector3 _grabOffset;
 
         private static FovMenu? _instance;
@@ -65,14 +88,14 @@ namespace GTagCameraMod
             _visualsRoot.transform.localPosition = Vector3.zero;
             _visualsRoot.transform.localRotation = Quaternion.identity;
 
-            // --- Wood frame (full panel) ---
+            // --- Wood frame ---
             MakeQuad("Frame",
                 localPos: Vector3.zero,
                 size: new Vector2(PanelWidth, PanelHeight),
                 color: WoodFrame,
                 parent: _visualsRoot.transform);
 
-            // --- Title strip text at the top of the frame ---
+            // --- Title strip ---
             MakeText("Title", "GTAG CAMERA MOD",
                 localPos: new Vector3(0f, PanelHeight * 0.42f, -0.002f),
                 charSize: 0.0042f,
@@ -80,76 +103,73 @@ namespace GTagCameraMod
                 parent: _visualsRoot.transform);
 
             // --- FOV card (left half) ---
-            Vector3 fovCardPos = new(-PanelWidth * 0.24f, -0.01f, -0.002f);
+            Vector3 fovCardPos = new(-PanelWidth * 0.24f, -0.015f, -0.002f);
             Vector2 fovCardSize = new(PanelWidth * 0.40f, PanelHeight * 0.62f);
-
             MakeQuad("FovCard", fovCardPos, fovCardSize, CreamCard, _visualsRoot.transform);
 
             MakeText("FovLabel", "FOV",
-                localPos: fovCardPos + new Vector3(0f, fovCardSize.y * 0.32f, -0.001f),
+                localPos: fovCardPos + new Vector3(0f, fovCardSize.y * 0.32f, -0.003f),
                 charSize: 0.0050f,
                 color: DarkBrown,
                 parent: _visualsRoot.transform);
 
             _fovText = MakeText("FovText", "90",
-                localPos: fovCardPos + new Vector3(0f, fovCardSize.y * 0.02f, -0.001f),
+                localPos: fovCardPos + new Vector3(0f, fovCardSize.y * 0.04f, -0.003f),
                 charSize: 0.0140f,
                 color: DarkBrown,
                 parent: _visualsRoot.transform);
 
-            // Small +/- buttons positioned at the lower-left and lower-right of the FOV card
-            float fovBtnSize = 0.038f;
+            // Bigger FOV buttons (was 0.038 — too small for VR hand)
+            float fovBtnSize = 0.055f;
             MakeButton("MinusButton", "-",
-                localPos: fovCardPos + new Vector3(-fovCardSize.x * 0.35f, -fovCardSize.y * 0.30f, -0.003f),
+                localPos: fovCardPos + new Vector3(-fovCardSize.x * 0.34f, -fovCardSize.y * 0.30f, -0.004f),
                 size: new Vector2(fovBtnSize, fovBtnSize),
                 color: RedAccent,
-                labelCharSize: 0.022f,
+                labelCharSize: 0.030f,
                 labelColor: Color.white,
                 onTouched: () => AdjustFov(-FovStep));
 
             MakeButton("PlusButton", "+",
-                localPos: fovCardPos + new Vector3(+fovCardSize.x * 0.35f, -fovCardSize.y * 0.30f, -0.003f),
+                localPos: fovCardPos + new Vector3(+fovCardSize.x * 0.34f, -fovCardSize.y * 0.30f, -0.004f),
                 size: new Vector2(fovBtnSize, fovBtnSize),
                 color: GreenAccent,
-                labelCharSize: 0.022f,
+                labelCharSize: 0.030f,
                 labelColor: Color.white,
                 onTouched: () => AdjustFov(+FovStep));
 
-            // --- Disconnect card (right half) — the entire card is the button ---
-            Vector3 discCardPos = new(+PanelWidth * 0.24f, -0.01f, -0.002f);
+            // --- Disconnect card (right half) — whole card is the button ---
+            Vector3 discCardPos = new(+PanelWidth * 0.24f, -0.015f, -0.002f);
             Vector2 discCardSize = new(PanelWidth * 0.40f, PanelHeight * 0.62f);
 
             MakeButton("DisconnectButton", "DISCONNECT\nLOBBY",
                 localPos: discCardPos,
                 size: discCardSize,
                 color: OrangeCard,
-                labelCharSize: 0.008f,
+                labelCharSize: 0.009f,
                 labelColor: Color.white,
                 onTouched: DisconnectLobby);
 
-            // --- Side grab handles (pink for visibility) ---
-            float handleX = PanelWidth / 2f + HandleSize / 2f + 0.005f;
-            MakeHandle("LeftHandle", new Vector3(-handleX, 0f, 0f));
-            MakeHandle("RightHandle", new Vector3(+handleX, 0f, 0f));
+            // --- Side grab handles ---
+            float handleX = PanelWidth / 2f + HandleSize / 2f + 0.008f;
+            _handles.Add(MakeHandle("LeftHandle",  new Vector3(-handleX, 0f, 0f)).transform);
+            _handles.Add(MakeHandle("RightHandle", new Vector3(+handleX, 0f, 0f)).transform);
         }
+
+        // --- Construction helpers ---
 
         private GameObject MakeQuad(string name, Vector3 localPos, Vector2 size,
             Color color, Transform parent)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
             go.name = name;
-
             var mc = go.GetComponent<MeshCollider>();
-            if (mc != null) Destroy(mc);
-
+            if (mc != null) Destroy(mc); // no physics colliders needed; we poll positions
             go.transform.SetParent(parent, worldPositionStays: false);
             go.transform.localPosition = localPos;
             go.transform.localScale = new Vector3(size.x, size.y, 1f);
-
             var mat = new Material(Shader.Find("Hidden/Internal-Colored"));
             mat.color = color;
             go.GetComponent<Renderer>().material = mat;
-
             return go;
         }
 
@@ -160,7 +180,6 @@ namespace GTagCameraMod
             go.transform.SetParent(parent, worldPositionStays: false);
             go.transform.localPosition = localPos;
             go.transform.localRotation = Quaternion.identity;
-
             var tm = go.AddComponent<TextMesh>();
             tm.text = text;
             tm.color = color;
@@ -176,11 +195,11 @@ namespace GTagCameraMod
         {
             var btn = MakeQuad(name, localPos, size, color, _visualsRoot!.transform);
 
+            // Label coplanar with the button face (small offset to avoid z-fighting)
             var labelGo = new GameObject(name + "_Label");
             labelGo.transform.SetParent(btn.transform, worldPositionStays: false);
-            labelGo.transform.localPosition = new Vector3(0f, 0f, -0.05f);
+            labelGo.transform.localPosition = new Vector3(0f, 0f, -0.005f);
             labelGo.transform.localRotation = Quaternion.identity;
-            // Counteract the parent quad's non-uniform scale so text doesn't squish
             labelGo.transform.localScale = new Vector3(1f / size.x, 1f / size.y, 1f);
 
             var tm = labelGo.AddComponent<TextMesh>();
@@ -191,46 +210,31 @@ namespace GTagCameraMod
             tm.alignment = TextAlignment.Center;
             tm.fontSize = 64;
 
-            var bc = btn.AddComponent<BoxCollider>();
-            bc.isTrigger = true;
-            bc.size = new Vector3(1f, 1f, 0.6f);
-
-            var rb = btn.AddComponent<Rigidbody>();
-            rb.isKinematic = true;
-            rb.useGravity = false;
-
-            var trigger = btn.AddComponent<HandTouchTrigger>();
-            trigger.Menu = this;
-            trigger.OnTouched = onTouched;
+            _buttons.Add(new TouchTarget
+            {
+                Transform = btn.transform,
+                OnPressed = onTouched,
+                LocalHalfXY = new Vector2(0.5f, 0.5f), // full quad bounds (-0.5 to +0.5 in local)
+                Name = name,
+            });
         }
 
-        private void MakeHandle(string name, Vector3 localPos)
+        private GameObject MakeHandle(string name, Vector3 localPos)
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = name;
-
             var auto = go.GetComponent<BoxCollider>();
-            if (auto != null) Destroy(auto);
-
+            if (auto != null) Destroy(auto); // no physics; we poll
             go.transform.SetParent(_visualsRoot!.transform, worldPositionStays: false);
             go.transform.localPosition = localPos;
             go.transform.localScale = Vector3.one * HandleSize;
-
             var mat = new Material(Shader.Find("Hidden/Internal-Colored"));
             mat.color = HandlePink;
             go.GetComponent<Renderer>().material = mat;
-
-            var bc = go.AddComponent<BoxCollider>();
-            bc.isTrigger = true;
-            bc.size = Vector3.one * 1.6f;
-
-            var rb = go.AddComponent<Rigidbody>();
-            rb.isKinematic = true;
-            rb.useGravity = false;
-
-            var ht = go.AddComponent<HandleTrigger>();
-            ht.Menu = this;
+            return go;
         }
+
+        // --- Main loop ---
 
         private void Update()
         {
@@ -244,30 +248,120 @@ namespace GTagCameraMod
 
             HandleAButton();
             HandleKeyboardToggle();
-            HandleGrab();
+            HandleDiagnosticDump();
+
+            if (!_visible) return;
+
+            HandTracker.TryGetLeftHandPos(out Vector3 leftPos);
+            HandTracker.TryGetRightHandPos(out Vector3 rightPos);
+
+            ProcessButtonTouches(leftPos, rightPos);
+            ProcessHandleGrab(leftPos, rightPos);
         }
+
+        private void ProcessButtonTouches(Vector3 leftPos, Vector3 rightPos)
+        {
+            foreach (var tt in _buttons)
+            {
+                bool leftInside  = IsInsideButton(tt, leftPos);
+                bool rightInside = IsInsideButton(tt, rightPos);
+
+                // Edge-detect: fire only on transition outside → inside, with cooldown
+                if ((leftInside && !tt.LeftWasInside) || (rightInside && !tt.RightWasInside))
+                {
+                    if (Time.time - tt.LastFireTime >= TouchCooldown)
+                    {
+                        tt.LastFireTime = Time.time;
+                        Plugin.Log.LogInfo($"Touch: {tt.Name} pressed (left={leftInside}, right={rightInside})");
+                        tt.OnPressed();
+                    }
+                }
+                tt.LeftWasInside = leftInside;
+                tt.RightWasInside = rightInside;
+            }
+        }
+
+        private static bool IsInsideButton(TouchTarget tt, Vector3 worldPos)
+        {
+            if (float.IsNaN(worldPos.x)) return false;
+            var local = tt.Transform.InverseTransformPoint(worldPos);
+            return Mathf.Abs(local.x) <= tt.LocalHalfXY.x
+                && Mathf.Abs(local.y) <= tt.LocalHalfXY.y
+                && Mathf.Abs(local.z) <= TouchDepthM;
+        }
+
+        private void ProcessHandleGrab(Vector3 leftPos, Vector3 rightPos)
+        {
+            if (_isGrabbing)
+            {
+                if (!HandTracker.TryGetGrip(_grabbingNode, out bool gripDown) || !gripDown)
+                {
+                    _isGrabbing = false;
+                    Plugin.Log.LogInfo("Menu released.");
+                    return;
+                }
+                Vector3 handPos = _grabbingNode == XRNode.LeftHand ? leftPos : rightPos;
+                if (!float.IsNaN(handPos.x))
+                {
+                    transform.position = handPos + _grabOffset;
+                }
+                return;
+            }
+
+            // Not grabbing — look for a new grab. Need grip held + hand inside a handle.
+            HandTracker.TryGetGrip(XRNode.LeftHand,  out bool leftGrip);
+            HandTracker.TryGetGrip(XRNode.RightHand, out bool rightGrip);
+
+            foreach (var h in _handles)
+            {
+                if (leftGrip && IsInsideHandle(h, leftPos))
+                {
+                    StartGrab(XRNode.LeftHand, leftPos);
+                    return;
+                }
+                if (rightGrip && IsInsideHandle(h, rightPos))
+                {
+                    StartGrab(XRNode.RightHand, rightPos);
+                    return;
+                }
+            }
+        }
+
+        private static bool IsInsideHandle(Transform handle, Vector3 worldPos)
+        {
+            if (float.IsNaN(worldPos.x)) return false;
+            var local = handle.InverseTransformPoint(worldPos);
+            // Use slightly bigger bounds (0.8 vs 0.5) for forgiving grab
+            return Mathf.Abs(local.x) <= 0.8f && Mathf.Abs(local.y) <= 0.8f && Mathf.Abs(local.z) <= 0.8f;
+        }
+
+        private void StartGrab(XRNode node, Vector3 handPos)
+        {
+            _isGrabbing = true;
+            _grabbingNode = node;
+            _grabOffset = transform.position - handPos;
+            Plugin.Log.LogInfo($"Menu grabbed by {node}.");
+        }
+
+        // --- A button / keyboard ---
 
         private void PlaceAtInitialPos()
         {
             if (_head == null || _hasBeenPositioned) return;
-
             transform.position = _head.transform.TransformPoint(InitialOffsetFromHead);
             var toHead = _head.transform.position - transform.position;
             if (toHead.sqrMagnitude > 0.0001f)
                 transform.rotation = Quaternion.LookRotation(-toHead, Vector3.up);
-
             _hasBeenPositioned = true;
         }
 
         private void HandleAButton()
         {
-            var right = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
-            if (!right.TryGetFeatureValue(CommonUsages.primaryButton, out bool aDown))
+            if (!HandTracker.TryGetPrimary(XRNode.RightHand, out bool aDown))
             {
                 _aWasDown = false;
                 return;
             }
-
             if (aDown && !_aWasDown) ToggleVisibility();
             _aWasDown = aDown;
         }
@@ -281,55 +375,33 @@ namespace GTagCameraMod
         {
             _visible = !_visible;
             _visualsRoot?.SetActive(_visible);
-            if (!_visible) _grabbingHand = null;
+            if (!_visible) _isGrabbing = false;
             Plugin.Log.LogInfo($"Menu visible: {_visible}");
         }
 
-        private void HandleGrab()
+        private void HandleDiagnosticDump()
         {
-            if (_grabbingHand == null) return;
-
-            var device = InputDevices.GetDeviceAtXRNode(_grabbingNode);
-            if (!device.TryGetFeatureValue(CommonUsages.gripButton, out bool gripDown) || !gripDown)
-            {
-                _grabbingHand = null;
-                Plugin.Log.LogInfo("Menu released.");
-                return;
-            }
-
-            transform.position = _grabbingHand.position + _grabOffset;
+            if (!Input.GetKeyDown(KeyCode.F11)) return;
+            Plugin.Log.LogInfo("=== GTagCameraMod diagnostic ===");
+            Plugin.Log.LogInfo($"  HandTracker: {HandTracker.DescribeState()}");
+            HandTracker.TryGetLeftHandPos(out Vector3 lp);
+            HandTracker.TryGetRightHandPos(out Vector3 rp);
+            Plugin.Log.LogInfo($"  Left hand pos:  {lp}");
+            Plugin.Log.LogInfo($"  Right hand pos: {rp}");
+            HandTracker.TryGetGrip(XRNode.LeftHand,  out bool lg);
+            HandTracker.TryGetGrip(XRNode.RightHand, out bool rg);
+            HandTracker.TryGetPrimary(XRNode.RightHand, out bool a);
+            Plugin.Log.LogInfo($"  Grip L={lg}, R={rg}; A={a}");
+            Plugin.Log.LogInfo($"  Menu pos: {transform.position}, visible={_visible}, grabbing={_isGrabbing}");
+            Plugin.Log.LogInfo("================================");
         }
 
-        internal void TryStartGrab(Collider other)
-        {
-            if (_grabbingHand != null || _head == null) return;
-
-            var relative = other.transform.position - _head.transform.position;
-            var isRight = Vector3.Dot(relative, _head.transform.right) > 0f;
-            var node = isRight ? XRNode.RightHand : XRNode.LeftHand;
-
-            var device = InputDevices.GetDeviceAtXRNode(node);
-            if (!device.TryGetFeatureValue(CommonUsages.gripButton, out bool gripDown) || !gripDown)
-                return;
-
-            _grabbingHand = other.transform;
-            _grabbingNode = node;
-            _grabOffset = transform.position - other.transform.position;
-            Plugin.Log.LogInfo($"Menu grabbed ({node}).");
-        }
-
-        internal void TryTouch(System.Action action)
-        {
-            if (Time.time - _lastTouchTime < TouchCooldown) return;
-            _lastTouchTime = Time.time;
-            action();
-        }
+        // --- Actions ---
 
         private void AdjustFov(float delta)
         {
             var cam = _head ?? Camera.main;
             if (cam == null) return;
-
             cam.fieldOfView = Mathf.Clamp(cam.fieldOfView + delta, FovMin, FovMax);
             RefreshFovText();
             Plugin.Log.LogInfo($"FOV: {cam.fieldOfView}");
@@ -352,6 +424,7 @@ namespace GTagCameraMod
             PhotonHelper.LeaveRoom();
         }
 
+        // --- Keyboard fallback for testing on PC where VR input may be flaky ---
         internal static void HandleKeyboardFallback()
         {
             if (_instance == null) return;
@@ -359,24 +432,5 @@ namespace GTagCameraMod
             else if (Input.GetKeyDown(KeyCode.F7)) _instance.AdjustFov(-FovStep);
             else if (Input.GetKeyDown(KeyCode.F9)) _instance.DisconnectLobby();
         }
-    }
-
-    internal class HandTouchTrigger : MonoBehaviour
-    {
-        internal FovMenu? Menu;
-        internal System.Action? OnTouched;
-
-        private void OnTriggerEnter(Collider _)
-        {
-            if (Menu == null || OnTouched == null) return;
-            Menu.TryTouch(OnTouched);
-        }
-    }
-
-    internal class HandleTrigger : MonoBehaviour
-    {
-        internal FovMenu? Menu;
-
-        private void OnTriggerStay(Collider other) => Menu?.TryStartGrab(other);
     }
 }
