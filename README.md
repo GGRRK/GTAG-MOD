@@ -15,17 +15,53 @@ Recording-camera mod for Gorilla Tag (PC / Steam). Adds a floating in-game menu 
 - Separate desktop output window
 - Hide HUD / UI for clean footage
 
-## Install (gaming PC)
-1. Install BepInEx 5.4.x for Gorilla Tag (easiest: Monke Mod Manager)
-2. Download `GTagCameraMod.dll` from the **Actions** tab → latest successful run → "GTagCameraMod-dll" artifact
-3. Drop the DLL into `<Gorilla Tag>/BepInEx/plugins/`
-4. Launch Gorilla Tag
+## What you need to install
+
+All links open in your browser. Install in this order.
+
+| # | Tool | Why you need it | Link |
+|---|------|------|------|
+| 1 | **Gorilla Tag** (Steam) | The game itself | <https://store.steampowered.com/app/1533390/Gorilla_Tag/> |
+| 2 | **Monke Mod Manager** | One-click installer for BepInEx 5 (the runtime that loads mods into Gorilla Tag) | <https://github.com/DeadlyKitten/MonkeModManager/releases/latest> |
+| 3 | **BepInEx 5** (manual alternative) | Only needed if Monke Mod Manager fails for some reason | <https://github.com/BepInEx/BepInEx/releases> (download `BepInEx_x64_5.4.21.0.zip`) |
+| 4 | **The mod DLL** | The actual GTAG-MOD plugin file built from this repo | <https://github.com/GGRRK/GTAG-MOD/actions> → click the latest green ✓ run → scroll to **Artifacts** → download **GTagCameraMod-dll** |
+
+### Optional / developer extras
+
+| Tool | Why | Link |
+|------|-----|------|
+| .NET SDK 8 | Build the DLL yourself (not needed if you grab the CI artifact) | <https://dotnet.microsoft.com/download/dotnet/8.0> |
+| Visual Studio 2022 Community (Windows) | Best C# IDE if you want to edit the mod | <https://visualstudio.microsoft.com/vs/community/> |
+| VS Code + C# Dev Kit (any OS) | Lightweight alternative editor | <https://code.visualstudio.com/download> · [C# Dev Kit extension](https://marketplace.visualstudio.com/items?itemName=ms-dotnettools.csdevkit) |
+| Git | Pull the latest code on your gaming PC | <https://git-scm.com/download/win> |
+
+## Install steps (gaming PC)
+
+1. Install **Gorilla Tag** from Steam if you don't have it.
+2. Download and run **Monke Mod Manager** (link above). Click *Install* — it adds BepInEx 5 to your Gorilla Tag folder automatically. Close it.
+3. Open the **GitHub Actions** page (link above), click the latest successful run, and download the **GTagCameraMod-dll** artifact. Unzip it to get `GTagCameraMod.dll`.
+4. Drop `GTagCameraMod.dll` into:
+   ```
+   <Steam>\steamapps\common\Gorilla Tag\BepInEx\plugins\
+   ```
+   (default Steam path: `C:\Program Files (x86)\Steam\steamapps\common\Gorilla Tag\BepInEx\plugins\`)
+5. Launch Gorilla Tag.
 
 The menu spawns 5 seconds after the game loads. Look down and slightly to your right — that's where it floats.
 
-## Build locally
-Requires .NET SDK 8+:
+## Build locally (optional)
+
+Requires [.NET SDK 8+](https://dotnet.microsoft.com/download/dotnet/8.0):
+
 ```
 dotnet build -c Release
 ```
+
 DLL appears in `bin/Release/net472/GTagCameraMod.dll`.
+
+## Useful references
+
+- [BepInEx documentation](https://docs.bepinex.dev/) — modding runtime docs
+- [Gorilla Tag modding wiki / community](https://github.com/legoandmars/utilla) — Utilla mod loader (helper layer many GT mods use)
+- [HarmonyX](https://github.com/BepInEx/HarmonyX) — runtime method patching library (used by most BepInEx mods for game-internal hooks)
+- [Unity scripting API](https://docs.unity3d.com/2021.3/Documentation/ScriptReference/) — Unity 2021.3 reference (matches the version GTAG-MOD targets)
