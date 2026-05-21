@@ -2,15 +2,20 @@
 
 Recording-camera mod for Gorilla Tag (PC / Steam). Adds a floating in-game menu that you touch with your gorilla hand to change FOV.
 
-## Features (v0.4)
-- Floating world-space menu — stays where you put it (no head-follow)
+## Features (v0.5)
+- Tablet-style menu with wood-brown frame and cream cards
+- **FOV card** — current FOV displayed big in the middle; red `−` and green `+` buttons to adjust
+- **DISCONNECT LOBBY card** — large orange tap zone, leaves the current Photon room
 - **A button (right controller) toggles the menu open/closed**
 - **Pink handles on each side** — touch with your hand + hold **grip** to drag the menu wherever you want; release grip to drop
-- Touch the red `−` button to narrow FOV (zoom in)
-- Touch the green `+` button to widen FOV (zoom out)
-- Touch the orange **DISCONNECT LOBBY** button to leave the current Photon room
+- Menu stays where you put it (no head-follow)
 - Keyboard fallbacks: `F7` (FOV−), `F8` (FOV+), `F9` (disconnect), `F10` (toggle menu)
 - FOV clamped to 30°–170°
+
+### Not yet matching the reference
+- Rounded corners (needs custom shader / bundled texture)
+- Wood texture on the frame (needs bundled PNG)
+- First/Third person toggle, FLIP, RECORD buttons — each is its own feature, ask if you want any built next
 
 ## Roadmap
 - Camera smoothing for less jittery recordings

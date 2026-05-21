@@ -9,7 +9,7 @@ namespace GTagCameraMod
     //   - A button on right controller toggles visibility (F10 keyboard fallback)
     //   - Touch a side handle + hold grip on the same hand → menu follows that hand
     //   - Release grip → menu stays at new position
-    //   - Touch the FOV +/- buttons or the DISCONNECT button to activate them
+    //   - Touch the FOV +/- buttons or the DISCONNECT card to activate them
     public class FovMenu : MonoBehaviour
     {
         // === FOV ===
@@ -17,15 +17,22 @@ namespace GTagCameraMod
         private const float FovMin = 30f;
         private const float FovMax = 170f;
 
-        // === Sizes in world meters ===
-        private const float PanelWidth = 0.30f;
-        private const float PanelHeight = 0.20f;
-        private const float FovButtonSize = 0.06f;
-        private static readonly Vector2 DisconnectButtonSize = new(0.20f, 0.045f);
+        // === Sizes in world meters — tablet aspect ratio ===
+        private const float PanelWidth = 0.42f;
+        private const float PanelHeight = 0.22f;
         private const float HandleSize = 0.045f;
 
         // === First-time placement (offset from head when menu first becomes visible) ===
         private static readonly Vector3 InitialOffsetFromHead = new(0f, -0.15f, 0.55f);
+
+        // === Palette (wood + cream aesthetic) ===
+        private static readonly Color WoodFrame   = new(0.36f, 0.22f, 0.10f, 1f);
+        private static readonly Color CreamCard   = new(0.94f, 0.90f, 0.78f, 1f);
+        private static readonly Color DarkBrown   = new(0.18f, 0.10f, 0.04f, 1f);
+        private static readonly Color RedAccent   = new(0.78f, 0.22f, 0.20f, 1f);
+        private static readonly Color GreenAccent = new(0.20f, 0.58f, 0.25f, 1f);
+        private static readonly Color OrangeCard  = new(0.88f, 0.55f, 0.10f, 1f);
+        private static readonly Color HandlePink  = new(1.00f, 0.40f, 0.85f, 1f);
 
         // === Interaction ===
         private const float TouchCooldown = 0.25f;
@@ -34,15 +41,12 @@ namespace GTagCameraMod
         private TextMesh? _fovText;
         private float _lastTouchTime;
 
-        // The wrapping GameObject holding all visuals. Toggle SetActive to show/hide.
         private GameObject? _visualsRoot;
         private bool _visible = true;
         private bool _hasBeenPositioned;
 
-        // Edge detection for the A button so one press = one toggle
         private bool _aWasDown;
 
-        // Grab state
         private Transform? _grabbingHand;
         private XRNode _grabbingNode = XRNode.RightHand;
         private Vector3 _grabOffset;
@@ -56,57 +60,74 @@ namespace GTagCameraMod
 
         private void BuildMenu()
         {
-            // Wrap visuals in a child object so SetActive toggles everything at once.
             _visualsRoot = new GameObject("Visuals");
             _visualsRoot.transform.SetParent(transform, worldPositionStays: false);
             _visualsRoot.transform.localPosition = Vector3.zero;
             _visualsRoot.transform.localRotation = Quaternion.identity;
 
-            // --- Background panel ---
-            MakeQuad("Background",
+            // --- Wood frame (full panel) ---
+            MakeQuad("Frame",
                 localPos: Vector3.zero,
                 size: new Vector2(PanelWidth, PanelHeight),
-                color: new Color(0.05f, 0.05f, 0.10f, 1f),
+                color: WoodFrame,
                 parent: _visualsRoot.transform);
 
-            // --- Title ---
+            // --- Title strip text at the top of the frame ---
             MakeText("Title", "GTAG CAMERA MOD",
-                localPos: new Vector3(0f, +0.080f, -0.002f),
-                charSize: 0.0035f,
-                color: new Color(0.65f, 0.80f, 1f),
+                localPos: new Vector3(0f, PanelHeight * 0.42f, -0.002f),
+                charSize: 0.0042f,
+                color: CreamCard,
                 parent: _visualsRoot.transform);
 
-            // --- FOV value (live) ---
-            _fovText = MakeText("FovText", "FOV: 90",
-                localPos: new Vector3(0f, +0.040f, -0.002f),
-                charSize: 0.006f,
-                color: Color.white,
+            // --- FOV card (left half) ---
+            Vector3 fovCardPos = new(-PanelWidth * 0.24f, -0.01f, -0.002f);
+            Vector2 fovCardSize = new(PanelWidth * 0.40f, PanelHeight * 0.62f);
+
+            MakeQuad("FovCard", fovCardPos, fovCardSize, CreamCard, _visualsRoot.transform);
+
+            MakeText("FovLabel", "FOV",
+                localPos: fovCardPos + new Vector3(0f, fovCardSize.y * 0.32f, -0.001f),
+                charSize: 0.0050f,
+                color: DarkBrown,
                 parent: _visualsRoot.transform);
 
-            // --- FOV buttons ---
+            _fovText = MakeText("FovText", "90",
+                localPos: fovCardPos + new Vector3(0f, fovCardSize.y * 0.02f, -0.001f),
+                charSize: 0.0140f,
+                color: DarkBrown,
+                parent: _visualsRoot.transform);
+
+            // Small +/- buttons positioned at the lower-left and lower-right of the FOV card
+            float fovBtnSize = 0.038f;
             MakeButton("MinusButton", "-",
-                localPos: new Vector3(-PanelWidth * 0.36f, -0.010f, -0.005f),
-                size: new Vector2(FovButtonSize, FovButtonSize),
-                color: new Color(0.70f, 0.18f, 0.18f),
-                labelCharSize: 0.025f,
+                localPos: fovCardPos + new Vector3(-fovCardSize.x * 0.35f, -fovCardSize.y * 0.30f, -0.003f),
+                size: new Vector2(fovBtnSize, fovBtnSize),
+                color: RedAccent,
+                labelCharSize: 0.022f,
+                labelColor: Color.white,
                 onTouched: () => AdjustFov(-FovStep));
 
             MakeButton("PlusButton", "+",
-                localPos: new Vector3(+PanelWidth * 0.36f, -0.010f, -0.005f),
-                size: new Vector2(FovButtonSize, FovButtonSize),
-                color: new Color(0.18f, 0.55f, 0.22f),
-                labelCharSize: 0.025f,
+                localPos: fovCardPos + new Vector3(+fovCardSize.x * 0.35f, -fovCardSize.y * 0.30f, -0.003f),
+                size: new Vector2(fovBtnSize, fovBtnSize),
+                color: GreenAccent,
+                labelCharSize: 0.022f,
+                labelColor: Color.white,
                 onTouched: () => AdjustFov(+FovStep));
 
-            // --- Disconnect Lobby (wide, bottom) ---
-            MakeButton("DisconnectButton", "DISCONNECT LOBBY",
-                localPos: new Vector3(0f, -0.075f, -0.005f),
-                size: DisconnectButtonSize,
-                color: new Color(0.85f, 0.55f, 0.10f),
-                labelCharSize: 0.006f,
+            // --- Disconnect card (right half) — the entire card is the button ---
+            Vector3 discCardPos = new(+PanelWidth * 0.24f, -0.01f, -0.002f);
+            Vector2 discCardSize = new(PanelWidth * 0.40f, PanelHeight * 0.62f);
+
+            MakeButton("DisconnectButton", "DISCONNECT\nLOBBY",
+                localPos: discCardPos,
+                size: discCardSize,
+                color: OrangeCard,
+                labelCharSize: 0.008f,
+                labelColor: Color.white,
                 onTouched: DisconnectLobby);
 
-            // --- Side handles for dragging ---
+            // --- Side grab handles (pink for visibility) ---
             float handleX = PanelWidth / 2f + HandleSize / 2f + 0.005f;
             MakeHandle("LeftHandle", new Vector3(-handleX, 0f, 0f));
             MakeHandle("RightHandle", new Vector3(+handleX, 0f, 0f));
@@ -151,7 +172,7 @@ namespace GTagCameraMod
         }
 
         private void MakeButton(string name, string label, Vector3 localPos, Vector2 size,
-            Color color, float labelCharSize, System.Action onTouched)
+            Color color, float labelCharSize, Color labelColor, System.Action onTouched)
         {
             var btn = MakeQuad(name, localPos, size, color, _visualsRoot!.transform);
 
@@ -159,11 +180,12 @@ namespace GTagCameraMod
             labelGo.transform.SetParent(btn.transform, worldPositionStays: false);
             labelGo.transform.localPosition = new Vector3(0f, 0f, -0.05f);
             labelGo.transform.localRotation = Quaternion.identity;
+            // Counteract the parent quad's non-uniform scale so text doesn't squish
             labelGo.transform.localScale = new Vector3(1f / size.x, 1f / size.y, 1f);
 
             var tm = labelGo.AddComponent<TextMesh>();
             tm.text = label;
-            tm.color = Color.white;
+            tm.color = labelColor;
             tm.characterSize = labelCharSize;
             tm.anchor = TextAnchor.MiddleCenter;
             tm.alignment = TextAlignment.Center;
@@ -187,7 +209,6 @@ namespace GTagCameraMod
             var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
             go.name = name;
 
-            // Primitives auto-add a BoxCollider; remove it and add our own configured.
             var auto = go.GetComponent<BoxCollider>();
             if (auto != null) Destroy(auto);
 
@@ -196,10 +217,9 @@ namespace GTagCameraMod
             go.transform.localScale = Vector3.one * HandleSize;
 
             var mat = new Material(Shader.Find("Hidden/Internal-Colored"));
-            mat.color = new Color(1f, 0.40f, 0.85f); // bright pink for visibility
+            mat.color = HandlePink;
             go.GetComponent<Renderer>().material = mat;
 
-            // Larger trigger volume than the visual cube — easier to grab
             var bc = go.AddComponent<BoxCollider>();
             bc.isTrigger = true;
             bc.size = Vector3.one * 1.6f;
@@ -214,7 +234,6 @@ namespace GTagCameraMod
 
         private void Update()
         {
-            // Lazy: spawn position once we have a head camera reference
             if (_head == null)
             {
                 _head = Camera.main;
@@ -235,9 +254,8 @@ namespace GTagCameraMod
             transform.position = _head.transform.TransformPoint(InitialOffsetFromHead);
             var toHead = _head.transform.position - transform.position;
             if (toHead.sqrMagnitude > 0.0001f)
-            {
                 transform.rotation = Quaternion.LookRotation(-toHead, Vector3.up);
-            }
+
             _hasBeenPositioned = true;
         }
 
@@ -263,10 +281,7 @@ namespace GTagCameraMod
         {
             _visible = !_visible;
             _visualsRoot?.SetActive(_visible);
-
-            // Release any in-progress grab on hide
             if (!_visible) _grabbingHand = null;
-
             Plugin.Log.LogInfo($"Menu visible: {_visible}");
         }
 
@@ -282,26 +297,20 @@ namespace GTagCameraMod
                 return;
             }
 
-            // Menu follows the grabbing hand at the offset captured when grab started
             transform.position = _grabbingHand.position + _grabOffset;
         }
 
-        // Called by HandleTrigger when a collider enters or stays in a side handle
         internal void TryStartGrab(Collider other)
         {
             if (_grabbingHand != null || _head == null) return;
 
-            // Determine which hand entered by spatial side relative to the head
             var relative = other.transform.position - _head.transform.position;
             var isRight = Vector3.Dot(relative, _head.transform.right) > 0f;
             var node = isRight ? XRNode.RightHand : XRNode.LeftHand;
 
             var device = InputDevices.GetDeviceAtXRNode(node);
             if (!device.TryGetFeatureValue(CommonUsages.gripButton, out bool gripDown) || !gripDown)
-            {
-                // Hand in handle but no grip → not grabbing
                 return;
-            }
 
             _grabbingHand = other.transform;
             _grabbingNode = node;
@@ -330,7 +339,7 @@ namespace GTagCameraMod
         {
             var cam = _head ?? Camera.main;
             if (cam == null || _fovText == null) return;
-            _fovText.text = $"FOV: {Mathf.RoundToInt(cam.fieldOfView)}";
+            _fovText.text = $"{Mathf.RoundToInt(cam.fieldOfView)}";
         }
 
         private void DisconnectLobby()
@@ -343,7 +352,6 @@ namespace GTagCameraMod
             PhotonHelper.LeaveRoom();
         }
 
-        // Keyboard fallbacks for testing on PC where VR input may be flaky
         internal static void HandleKeyboardFallback()
         {
             if (_instance == null) return;
@@ -353,7 +361,6 @@ namespace GTagCameraMod
         }
     }
 
-    // Attached to each action button (FOV +/-, Disconnect). Fires on hand entering trigger.
     internal class HandTouchTrigger : MonoBehaviour
     {
         internal FovMenu? Menu;
@@ -366,16 +373,10 @@ namespace GTagCameraMod
         }
     }
 
-    // Attached to each side handle. Forwards to FovMenu.TryStartGrab, which checks grip state.
     internal class HandleTrigger : MonoBehaviour
     {
         internal FovMenu? Menu;
 
-        // Fires every fixed-update tick while a collider with a Rigidbody overlaps —
-        // lets the menu grab the moment the user presses grip with their hand inside.
-        private void OnTriggerStay(Collider other)
-        {
-            Menu?.TryStartGrab(other);
-        }
+        private void OnTriggerStay(Collider other) => Menu?.TryStartGrab(other);
     }
 }
