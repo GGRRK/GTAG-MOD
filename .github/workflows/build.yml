@@ -3,7 +3,11 @@ name: Build mod DLL
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -23,10 +27,21 @@ jobs:
       - name: Build (Release)
         run: dotnet build -c Release --no-restore
 
-      - name: Upload DLL artifact
+      - name: Upload DLL as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: GTagCameraMod-dll
           path: bin/Release/net472/GTagCameraMod.dll
           if-no-files-found: error
           retention-days: 30
+
+      # Only runs when we push a tag like v0.2.0 — creates a GitHub Release with the DLL attached
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: bin/Release/net472/GTagCameraMod.dll
+          generate_release_notes: true
+          fail_on_unmatched_files: true

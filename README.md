@@ -24,7 +24,7 @@ All links open in your browser. Install in this order.
 | 1 | **Gorilla Tag** (Steam) | The game itself | <https://store.steampowered.com/app/1533390/Gorilla_Tag/> |
 | 2 | **Monke Mod Manager** | One-click installer for BepInEx 5 (the runtime that loads mods into Gorilla Tag) | <https://github.com/DeadlyKitten/MonkeModManager/releases/latest> |
 | 3 | **BepInEx 5** (manual alternative) | Only needed if Monke Mod Manager fails for some reason | <https://github.com/BepInEx/BepInEx/releases> (download `BepInEx_x64_5.4.21.0.zip`) |
-| 4 | **The mod DLL** | The actual GTAG-MOD plugin file built from this repo | <https://github.com/GGRRK/GTAG-MOD/actions> → click the latest green ✓ run → scroll to **Artifacts** → download **GTagCameraMod-dll** |
+| 4 | **The mod DLL** | The actual GTAG-MOD plugin file built from this repo | <https://github.com/GGRRK/GTAG-MOD/releases/latest> → download `GTagCameraMod.dll` |
 
 ### Optional / developer extras
 
@@ -39,7 +39,7 @@ All links open in your browser. Install in this order.
 
 1. Install **Gorilla Tag** from Steam if you don't have it.
 2. Download and run **Monke Mod Manager** (link above). Click *Install* — it adds BepInEx 5 to your Gorilla Tag folder automatically. Close it.
-3. Open the **GitHub Actions** page (link above), click the latest successful run, and download the **GTagCameraMod-dll** artifact. Unzip it to get `GTagCameraMod.dll`.
+3. Open the **Releases** page (link above) and download `GTagCameraMod.dll` from the latest release.
 4. Drop `GTagCameraMod.dll` into:
    ```
    <Steam>\steamapps\common\Gorilla Tag\BepInEx\plugins\
