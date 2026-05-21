@@ -23,7 +23,7 @@ All links open in your browser. Install in this order.
 | # | Tool | Why you need it | Link |
 |---|------|------|------|
 | 1 | **Gorilla Tag** (Steam) | The game itself | <https://store.steampowered.com/app/1533390/Gorilla_Tag/> |
-| 2 | **Monke Mod Manager** | One-click installer for BepInEx 5 (the runtime that loads mods into Gorilla Tag) | <https://github.com/DeadlyKitten/MonkeModManager/releases/latest> |
+| 2 | **Monke Mod Manager** | One-click installer for BepInEx 5 (the runtime that loads mods into Gorilla Tag) | <https://github.com/arielthemonke/MonkeModManager/releases/latest> (active fork) · alternative: <https://github.com/BzzzThe18th/MonkeModManager/releases/latest> |
 | 3 | **BepInEx 5** (manual alternative) | Only needed if Monke Mod Manager fails for some reason | <https://github.com/BepInEx/BepInEx/releases> (download `BepInEx_x64_5.4.21.0.zip`) |
 | 4 | **The mod DLL** | The actual GTAG-MOD plugin file built from this repo | <https://github.com/GGRRK/GTAG-MOD/releases/latest> → download `GTagCameraMod.dll` |
 
