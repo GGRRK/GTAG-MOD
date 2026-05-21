@@ -11,23 +11,20 @@ namespace GTagCameraMod
 
         // Physical sizes in world meters
         private const float PanelWidth = 0.30f;
-        private const float PanelHeight = 0.15f;
-        private const float ButtonSize = 0.07f;
+        private const float PanelHeight = 0.20f;
+        private const float FovButtonSize = 0.06f;
+        private static readonly Vector2 DisconnectButtonSize = new(0.20f, 0.045f);
 
         // Local offset from the player's head: x=right, y=up, z=forward
         private static readonly Vector3 HeadOffset = new(0.30f, -0.15f, 0.45f);
 
-        // Higher = the menu snaps to your head more aggressively
         private const float FollowSmoothing = 6f;
-
-        // Anti-spam: ignore repeated touches within this many seconds
         private const float TouchCooldown = 0.25f;
 
         private Camera? _head;
         private TextMesh? _fovText;
         private float _lastTouchTime;
 
-        // Active instance so the static keyboard fallback can reach it
         private static FovMenu? _instance;
 
         private void Awake() => _instance = this;
@@ -44,31 +41,43 @@ namespace GTagCameraMod
                 color: new Color(0.05f, 0.05f, 0.10f, 1f),
                 parent: transform);
 
-            // --- Title text (top strip) ---
+            // --- Title text (top) ---
             MakeText("Title", "GTAG CAMERA MOD",
-                localPos: new Vector3(0f, PanelHeight * 0.35f, -0.002f),
+                localPos: new Vector3(0f, +0.080f, -0.002f),
                 charSize: 0.0035f,
                 color: new Color(0.65f, 0.80f, 1f),
                 parent: transform);
 
-            // --- FOV value (live, middle of panel) ---
+            // --- FOV value (high-middle) ---
             _fovText = MakeText("FovText", "FOV: 90",
-                localPos: new Vector3(0f, 0f, -0.002f),
+                localPos: new Vector3(0f, +0.040f, -0.002f),
                 charSize: 0.006f,
                 color: Color.white,
                 parent: transform);
 
-            // --- Minus button (left) ---
+            // --- Minus FOV button (mid, left) ---
             MakeButton("MinusButton", "-",
-                localPos: new Vector3(-PanelWidth * 0.36f, -PanelHeight * 0.15f, -0.005f),
+                localPos: new Vector3(-PanelWidth * 0.36f, -0.010f, -0.005f),
+                size: new Vector2(FovButtonSize, FovButtonSize),
                 color: new Color(0.70f, 0.18f, 0.18f),
+                labelCharSize: 0.025f,
                 onTouched: () => AdjustFov(-FovStep));
 
-            // --- Plus button (right) ---
+            // --- Plus FOV button (mid, right) ---
             MakeButton("PlusButton", "+",
-                localPos: new Vector3(+PanelWidth * 0.36f, -PanelHeight * 0.15f, -0.005f),
+                localPos: new Vector3(+PanelWidth * 0.36f, -0.010f, -0.005f),
+                size: new Vector2(FovButtonSize, FovButtonSize),
                 color: new Color(0.18f, 0.55f, 0.22f),
+                labelCharSize: 0.025f,
                 onTouched: () => AdjustFov(+FovStep));
+
+            // --- Disconnect Lobby button (bottom, wide) ---
+            MakeButton("DisconnectButton", "DISCONNECT LOBBY",
+                localPos: new Vector3(0f, -0.075f, -0.005f),
+                size: DisconnectButtonSize,
+                color: new Color(0.85f, 0.55f, 0.10f),
+                labelCharSize: 0.006f,
+                onTouched: DisconnectLobby);
         }
 
         private GameObject MakeQuad(string name, Vector3 localPos, Vector2 size,
@@ -111,24 +120,33 @@ namespace GTagCameraMod
             return tm;
         }
 
-        private void MakeButton(string name, string label, Vector3 localPos, Color color,
-            System.Action onTouched)
+        private void MakeButton(string name, string label, Vector3 localPos, Vector2 size,
+            Color color, float labelCharSize, System.Action onTouched)
         {
-            var btn = MakeQuad(name, localPos, new Vector2(ButtonSize, ButtonSize), color, transform);
+            var btn = MakeQuad(name, localPos, size, color, transform);
 
-            // Label sits in front of the button face
-            MakeText(name + "_Label", label,
-                localPos: new Vector3(0f, 0.005f, -0.001f),
-                charSize: 0.025f,
-                color: Color.white,
-                parent: btn.transform);
+            // Label sits in front of the button face. Local scale of label
+            // un-does the parent's scale so the character size stays in meters.
+            var labelGo = new GameObject(name + "_Label");
+            labelGo.transform.SetParent(btn.transform, worldPositionStays: false);
+            labelGo.transform.localPosition = new Vector3(0f, 0f, -0.05f);
+            labelGo.transform.localRotation = Quaternion.identity;
+            // Counteract the parent quad's non-uniform scale so the label doesn't squish
+            labelGo.transform.localScale = new Vector3(1f / size.x, 1f / size.y, 1f);
 
-            // BoxCollider trigger detects when a hand collider enters the button volume
+            var tm = labelGo.AddComponent<TextMesh>();
+            tm.text = label;
+            tm.color = Color.white;
+            tm.characterSize = labelCharSize;
+            tm.anchor = TextAnchor.MiddleCenter;
+            tm.alignment = TextAlignment.Center;
+            tm.fontSize = 64;
+
+            // Hand-touch detection
             var bc = btn.AddComponent<BoxCollider>();
             bc.isTrigger = true;
             bc.size = new Vector3(1f, 1f, 0.6f); // local; scales with parent transform
 
-            // OnTriggerEnter only fires if one of the colliders has a Rigidbody; make this one
             var rb = btn.AddComponent<Rigidbody>();
             rb.isKinematic = true;
             rb.useGravity = false;
@@ -198,12 +216,23 @@ namespace GTagCameraMod
             _fovText.text = $"FOV: {Mathf.RoundToInt(cam.fieldOfView)}";
         }
 
-        // Keyboard fallback for testing/debugging when hand-touch can't be verified
+        private void DisconnectLobby()
+        {
+            if (!PhotonHelper.InRoom)
+            {
+                Plugin.Log.LogInfo("Disconnect pressed but not currently in a lobby.");
+                return;
+            }
+            PhotonHelper.LeaveRoom();
+        }
+
+        // Keyboard fallback for testing/debugging
         internal static void HandleKeyboardFallback()
         {
             if (_instance == null) return;
             if (Input.GetKeyDown(KeyCode.F8)) _instance.AdjustFov(+FovStep);
             else if (Input.GetKeyDown(KeyCode.F7)) _instance.AdjustFov(-FovStep);
+            else if (Input.GetKeyDown(KeyCode.F9)) _instance.DisconnectLobby();
         }
     }
 
