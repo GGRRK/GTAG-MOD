@@ -2,7 +2,14 @@
 
 Recording-camera mod for Gorilla Tag (PC / Steam). Adds a floating in-game menu that you touch with your gorilla hand to change FOV.
 
-## Features (v0.7)
+## Features (v0.8)
+
+Robustness pass on top of v0.7's proxy-sphere triggers:
+- **Hand lookup tries `GorillaTagger.Instance.offlineVRRig` first** (the current canonical GT path) and falls back to `GorillaLocomotion.Player.Instance`. F11 dump reports which path bound.
+- **Hover feedback**: buttons tint brighter when a proxy sphere enters their volume — the fastest visual confirmation that hand tracking is working.
+- **Grip detection reads both** `CommonUsages.gripButton` (bool) **and** `CommonUsages.grip` (float ≥ 0.5) — covers controllers that only populate one.
+- **Explicit `GUI/3D Text Shader` material on every TextMesh** — fixes text bleeding through walls regardless of Unity's default font material.
+- Bigger handle cubes (5 cm → 7 cm) for easier grabbing.
 - Tablet-style menu with wood-brown frame and cream cards
 - **FOV card** — current FOV displayed big; red `−` and green `+` buttons to adjust
 - **DISCONNECT LOBBY card** — large orange tap zone, leaves the current Photon room

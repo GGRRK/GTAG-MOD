@@ -9,7 +9,7 @@ namespace GTagCameraMod
     {
         public const string PluginGuid = "com.ggrrk.gtagcameramod";
         public const string PluginName = "GTagCameraMod";
-        public const string PluginVersion = "0.7.0";
+        public const string PluginVersion = "0.8.0";
 
         internal static ManualLogSource Log = null!;
 

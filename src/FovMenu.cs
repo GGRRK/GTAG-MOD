@@ -127,9 +127,10 @@ namespace GTagCameraMod
                 labelColor: Color.white,
                 onPressed: DisconnectLobby);
 
-            // --- Pink grab handles on outer left/right ---
-            float handleX = PanelWidth / 2f + 0.035f;
-            Vector3 handleSize = new(0.05f, 0.05f, 0.05f);
+            // --- Pink grab handles on outer left/right (bigger = easier to grab) ---
+            float handleSizeM = 0.07f;
+            float handleX = PanelWidth / 2f + handleSizeM * 0.6f;
+            Vector3 handleSize = new(handleSizeM, handleSizeM, handleSizeM);
             _handles.Add(MakeHandle("LeftHandle",  new Vector3(-handleX, 0f, 0f), handleSize).transform);
             _handles.Add(MakeHandle("RightHandle", new Vector3(+handleX, 0f, 0f), handleSize).transform);
         }
@@ -167,9 +168,26 @@ namespace GTagCameraMod
             tm.anchor = TextAnchor.MiddleCenter;
             tm.alignment = TextAlignment.Center;
             tm.fontSize = 64;
-            // TextMesh default shader (GUI/3D Text Shader) defaults to ZTest LEqual,
-            // which means it IS occluded by walls correctly. No material override needed.
+            // The default font material on some Unity builds binds to GUI/Text Shader (ZTest Always),
+            // which makes text render through walls. Force GUI/3D Text Shader (ZTest LEqual) while
+            // keeping the font's glyph atlas as the texture.
+            ApplyDepthTestedTextShader(tm, color);
             return tm;
+        }
+
+        // Replaces a TextMesh's material with an explicit GUI/3D Text Shader build so the text
+        // gets occluded by closer geometry instead of bleeding through walls.
+        private static void ApplyDepthTestedTextShader(TextMesh tm, Color color)
+        {
+            var mr = tm.GetComponent<MeshRenderer>();
+            if (mr == null) return;
+            var shader = Shader.Find("GUI/3D Text Shader");
+            if (shader == null) return; // Unity build doesn't ship it — fall back to default
+            var srcMat = tm.font != null ? tm.font.material : mr.sharedMaterial;
+            var mat = new Material(shader);
+            if (srcMat != null) mat.mainTexture = srcMat.mainTexture;
+            mat.color = color;
+            mr.material = mat;
         }
 
         // Interactive button: keep auto BoxCollider, set isTrigger=true. The proxy
@@ -184,11 +202,17 @@ namespace GTagCameraMod
             btn.transform.SetParent(_visualsRoot!.transform, worldPositionStays: false);
             btn.transform.localPosition = localPos;
             btn.transform.localScale = size;
-            btn.GetComponent<Renderer>().material.color = color;
+            var renderer = btn.GetComponent<Renderer>();
+            renderer.material.color = color;
 
             var trigger = btn.AddComponent<ButtonTrigger>();
             trigger.Name = name;
             trigger.OnPressed = onPressed;
+            trigger.Renderer = renderer;
+            trigger.BaseColor = color;
+            // Hover tint = midway toward white. Strong enough to be obvious in VR, subtle enough
+            // not to look broken when hovered for a long time before pressing.
+            trigger.HoverColor = Color.Lerp(color, Color.white, 0.35f);
 
             // Label is a TextMesh placed just in front of the button face
             var labelGo = new GameObject(name + "_Label");
@@ -203,6 +227,7 @@ namespace GTagCameraMod
             tm.anchor = TextAnchor.MiddleCenter;
             tm.alignment = TextAlignment.Center;
             tm.fontSize = 64;
+            ApplyDepthTestedTextShader(tm, labelColor);
 
             return btn;
         }
@@ -368,21 +393,44 @@ namespace GTagCameraMod
     // Filters trigger events to only fire when one of our proxy spheres enters.
     // Without this filter we might trigger on GT's own hand colliders or other
     // physics objects in the scene and behave erratically.
+    //
+    // Hover feedback: while a proxy is inside the button volume, the button tints
+    // brighter. Restores the base color when the last proxy leaves. This is the
+    // fastest "is the mod tracking my hand?" signal — if the button tints, the
+    // chain is working; if it doesn't, HandTracker is the culprit.
     internal class ButtonTrigger : MonoBehaviour
     {
         internal string Name = "";
         internal System.Action OnPressed = null!;
+        internal Renderer? Renderer;
+        internal Color BaseColor;
+        internal Color HoverColor;
+
         private const float Cooldown = 0.25f;
         private float _lastFire;
+        private int _proxiesInside;
 
         private void OnTriggerEnter(Collider other)
         {
             var node = HandTracker.IdentifyProxy(other.gameObject);
             if (node == null) return; // not one of our proxies
+
+            _proxiesInside++;
+            if (_proxiesInside == 1 && Renderer != null) Renderer.material.color = HoverColor;
+
             if (Time.time - _lastFire < Cooldown) return;
             _lastFire = Time.time;
             Plugin.Log.LogInfo($"Button pressed: {Name} (by {node})");
             OnPressed?.Invoke();
+        }
+
+        private void OnTriggerExit(Collider other)
+        {
+            var node = HandTracker.IdentifyProxy(other.gameObject);
+            if (node == null) return;
+
+            _proxiesInside = Mathf.Max(0, _proxiesInside - 1);
+            if (_proxiesInside == 0 && Renderer != null) Renderer.material.color = BaseColor;
         }
     }
 
